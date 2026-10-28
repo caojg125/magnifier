@@ -1,0 +1,934 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>局部放大器 · DOM Magnifier</title>
+<style>
+  :root{
+    --bg:#080c10;
+    --card:#0f161d;
+    --line:#223140;
+    --line-soft:#182430;
+    --text:#e6eef6;
+    --muted:#8fa0b1;
+    --dim:#607486;
+    --lime:#d7ff4a;
+    --teal:#5fe0c0;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --serif: "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "STSong", Georgia, serif;
+  }
+
+  *{ box-sizing:border-box; }
+  html{ color-scheme:dark; }
+  body{
+    margin:0;
+    min-height:100vh;
+    background:
+      radial-gradient(1100px 680px at 12% -10%, rgba(95,224,192,.075), transparent 62%),
+      radial-gradient(900px 620px at 92% 4%, rgba(215,255,74,.05), transparent 60%),
+      var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ── top bar ─────────────────────────────────────────────── */
+  .topbar{
+    max-width:1180px;
+    margin:0 auto;
+    padding:34px 32px 0;
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:24px;
+  }
+  .brand{ display:flex; align-items:center; gap:13px; }
+  .mark{
+    position:relative;
+    flex:none;
+    width:26px;
+    height:26px;
+    border:1.5px solid var(--lime);
+    border-radius:50%;
+  }
+  .mark::after{
+    content:"";
+    position:absolute;
+    right:-7px;
+    bottom:-3px;
+    width:10px;
+    height:1.5px;
+    border-radius:2px;
+    background:var(--lime);
+    transform:rotate(45deg);
+  }
+  .brand-title{ margin:0; font-size:15px; font-weight:600; letter-spacing:.06em; }
+  .brand-sub{
+    margin:4px 0 0;
+    font-family:var(--mono);
+    font-size:8.5px;
+    letter-spacing:.16em;
+    color:var(--dim);
+    text-transform:uppercase;
+  }
+  .hint{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin:6px 0 0;
+    font-family:var(--mono);
+    font-size:9px;
+    letter-spacing:.14em;
+    color:var(--muted);
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  .pulse{
+    width:6px;
+    height:6px;
+    border-radius:50%;
+    background:var(--lime);
+    animation:pulse 2s ease-out infinite;
+  }
+  @keyframes pulse{
+    0%{ box-shadow:0 0 0 0 rgba(215,255,74,.45); }
+    70%{ box-shadow:0 0 0 8px rgba(215,255,74,0); }
+    100%{ box-shadow:0 0 0 0 rgba(215,255,74,0); }
+  }
+
+  /* ── stage & card ────────────────────────────────────────── */
+  .stage{
+    max-width:1180px;
+    margin:0 auto;
+    padding:34px 32px 170px;
+  }
+  .card{
+    display:grid;
+    grid-template-columns:1.08fr .92fr;
+    max-width:1020px;
+    margin:0 auto;
+    overflow:hidden;
+    border:1px solid var(--line);
+    border-radius:22px;
+    background:linear-gradient(180deg, #101821, #0d141b);
+    box-shadow:0 40px 120px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.04);
+    cursor:crosshair;
+    user-select:none;
+    -webkit-user-select:none;
+  }
+
+  .visual{
+    position:relative;
+    min-height:520px;
+    border-right:1px solid var(--line);
+    background-color:#0c1619;
+    background-image:
+      linear-gradient(rgba(80,130,130,.11) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(80,130,130,.11) 1px, transparent 1px);
+    background-size:24px 24px;
+  }
+  .visual::after{
+    content:"";
+    position:absolute;
+    inset:0;
+    z-index:1;
+    pointer-events:none;
+    background:radial-gradient(120% 90% at 18% 8%, transparent 42%, rgba(5,9,11,.45) 100%);
+  }
+  .map{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+  .map text{ font-family:var(--mono); }
+
+  .coords{
+    position:absolute;
+    left:18px;
+    top:16px;
+    z-index:2;
+    padding:5px 8px;
+    border:1px solid rgba(130,160,175,.18);
+    border-radius:4px;
+    background:rgba(8,14,18,.55);
+    color:#9ab3c2;
+    font-family:var(--mono);
+    font-size:8px;
+    letter-spacing:.14em;
+    backdrop-filter:blur(4px);
+  }
+
+  .content{
+    display:flex;
+    flex-direction:column;
+    min-height:520px;
+    padding:42px 44px 32px;
+  }
+  .kicker{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin:0 0 20px;
+    color:var(--lime);
+    font-family:var(--mono);
+    font-size:9.5px;
+    letter-spacing:.18em;
+    text-transform:uppercase;
+  }
+  .kicker::before{
+    content:"";
+    width:18px;
+    height:1px;
+    background:var(--lime);
+    opacity:.7;
+  }
+  h1{
+    margin:0 0 18px;
+    font-family:var(--serif);
+    font-size:clamp(30px, 3.2vw, 43px);
+    font-weight:600;
+    line-height:1.16;
+    letter-spacing:.01em;
+  }
+  h1 .hl{
+    background:linear-gradient(transparent 65%, rgba(215,255,74,.26) 65%);
+  }
+  .lede{
+    margin:0 0 26px;
+    max-width:36em;
+    color:var(--muted);
+    font-size:13.5px;
+    line-height:1.9;
+  }
+  .specs{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    margin:0 0 28px;
+    border-top:1px solid var(--line-soft);
+  }
+  .spec{
+    padding:14px 0 12px;
+    border-bottom:1px solid var(--line-soft);
+  }
+  .spec:nth-child(odd){
+    padding-right:16px;
+    border-right:1px solid var(--line-soft);
+  }
+  .spec:nth-child(even){ padding-left:18px; }
+  .spec dt{
+    margin:0 0 6px;
+    color:var(--dim);
+    font-family:var(--mono);
+    font-size:8.5px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+  }
+  .spec dd{
+    margin:0;
+    font-family:var(--mono);
+    font-size:19px;
+    letter-spacing:-.01em;
+  }
+  .spec dd small{
+    margin-left:2px;
+    color:var(--dim);
+    font-size:9px;
+    letter-spacing:.08em;
+  }
+  .meta{
+    margin:auto 0 0;
+    color:var(--dim);
+    font-family:var(--mono);
+    font-size:8.5px;
+    line-height:1.75;
+    letter-spacing:.03em;
+  }
+  .stamp{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-top:14px;
+    color:var(--dim);
+    font-family:var(--mono);
+    font-size:8px;
+    letter-spacing:.16em;
+  }
+  .bars{
+    width:74px;
+    height:16px;
+    opacity:.7;
+    background:repeating-linear-gradient(90deg,
+      #7f93a4 0 1px, transparent 1px 3px,
+      #7f93a4 3px 5px, transparent 5px 6px,
+      #7f93a4 6px 8px, transparent 8px 11px);
+  }
+
+  /* ── dock ────────────────────────────────────────────────── */
+  .dock{
+    position:fixed;
+    left:50%;
+    bottom:26px;
+    z-index:70;
+    transform:translateX(-50%);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    flex-wrap:wrap;
+    gap:14px 22px;
+    max-width:calc(100vw - 28px);
+    padding:11px 15px;
+    border:1px solid rgba(120,150,170,.18);
+    border-radius:16px;
+    background:rgba(11,17,23,.8);
+    box-shadow:0 20px 60px rgba(0,0,0,.5);
+    backdrop-filter:blur(16px);
+  }
+  .seg{
+    display:flex;
+    padding:3px;
+    border:1px solid var(--line-soft);
+    border-radius:10px;
+    background:#0a1117;
+  }
+  .seg-btn{
+    appearance:none;
+    padding:8px 12px;
+    border:0;
+    border-radius:7px;
+    background:transparent;
+    color:var(--muted);
+    font:500 12px/1 var(--sans);
+    cursor:pointer;
+  }
+  .seg-btn:hover{ color:var(--text); }
+  .seg-btn.is-on{
+    background:#1b2833;
+    color:var(--text);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+  }
+  .ctl{
+    display:flex;
+    align-items:center;
+    gap:9px;
+    color:var(--dim);
+    font-family:var(--mono);
+    font-size:9px;
+    letter-spacing:.12em;
+    text-transform:uppercase;
+  }
+  .ctl b{
+    min-width:44px;
+    color:var(--text);
+    font-size:10px;
+    font-weight:500;
+    letter-spacing:0;
+    text-align:right;
+  }
+  input[type="range"]{
+    -webkit-appearance:none;
+    appearance:none;
+    width:116px;
+    height:16px;
+    padding:0;
+    background:transparent;
+    cursor:pointer;
+  }
+  input[type="range"]::-webkit-slider-runnable-track{
+    height:2px;
+    border-radius:2px;
+    background:#27343f;
+  }
+  input[type="range"]::-webkit-slider-thumb{
+    -webkit-appearance:none;
+    width:12px;
+    height:12px;
+    margin-top:-5px;
+    border:0;
+    border-radius:50%;
+    background:var(--lime);
+    box-shadow:0 0 0 3px rgba(215,255,74,.14);
+  }
+  input[type="range"]::-moz-range-track{
+    height:2px;
+    border-radius:2px;
+    background:#27343f;
+  }
+  input[type="range"]::-moz-range-thumb{
+    width:12px;
+    height:12px;
+    border:0;
+    border-radius:50%;
+    background:var(--lime);
+  }
+  input[type="range"]:focus-visible{
+    outline:1px dashed rgba(215,255,74,.6);
+    outline-offset:4px;
+  }
+
+  /* ── loupe ───────────────────────────────────────────────── */
+  .lens-wrap{
+    position:fixed;
+    left:0;
+    top:0;
+    z-index:60;
+    width:0;
+    height:0;
+    pointer-events:none;
+    will-change:transform;
+  }
+  .lens{
+    position:absolute;
+    left:0;
+    top:0;
+    width:220px;
+    height:220px;
+    overflow:hidden;
+    border-radius:50%;
+    background:#0a1116;
+    opacity:0;
+    transform:scale(.88);
+    transition:opacity .16s ease, transform .24s cubic-bezier(.22,.9,.3,1.08);
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,.55),
+      0 0 0 5px rgba(215,255,74,.09),
+      0 0 0 6px rgba(215,255,74,.2),
+      0 30px 70px rgba(0,0,0,.7);
+  }
+  .lens-wrap.is-active .lens{
+    opacity:1;
+    transform:scale(1);
+  }
+  .lens-stage{ position:absolute; inset:0; }
+
+  .clone{
+    position:absolute !important;
+    left:0;
+    top:0;
+    margin:0 !important;
+    transform-origin:0 0;
+    pointer-events:none;
+    will-change:transform;
+  }
+  .clone,
+  .clone *{
+    animation:none !important;
+    transition:none !important;
+  }
+
+  .lens-rim{
+    position:absolute;
+    inset:0;
+    z-index:3;
+    border-radius:50%;
+    pointer-events:none;
+    box-shadow:
+      inset 0 0 0 1px rgba(255,255,255,.45),
+      inset 0 0 0 7px rgba(10,16,20,.14),
+      inset 0 0 28px rgba(0,0,0,.4);
+  }
+  .lens-glare{
+    position:absolute;
+    inset:0;
+    z-index:4;
+    border-radius:50%;
+    pointer-events:none;
+    background:
+      radial-gradient(circle at 30% 20%, rgba(255,255,255,.08), transparent 38%),
+      radial-gradient(circle at 72% 92%, rgba(0,0,0,.16), transparent 56%);
+  }
+  .lens-dot{
+    position:absolute;
+    left:var(--dot-x, 50%);
+    top:var(--dot-y, 50%);
+    z-index:5;
+    width:5px;
+    height:5px;
+    margin:-2.5px 0 0 -2.5px;
+    border-radius:50%;
+    background:rgba(215,255,74,.9);
+    box-shadow:0 0 0 3px rgba(215,255,74,.16);
+    pointer-events:none;
+  }
+
+  .probe{
+    position:fixed;
+    left:0;
+    top:0;
+    z-index:55;
+    width:16px;
+    height:16px;
+    margin:-8px 0 0 -8px;
+    border:1.5px solid var(--lime);
+    border-radius:50%;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .14s ease;
+    box-shadow:0 0 0 4px rgba(215,255,74,.12), 0 0 18px rgba(215,255,74,.35);
+  }
+  .probe.is-on{ opacity:1; }
+  .probe::after{
+    content:"";
+    position:absolute;
+    left:50%;
+    top:50%;
+    width:2px;
+    height:2px;
+    margin:-1px 0 0 -1px;
+    border-radius:50%;
+    background:var(--lime);
+  }
+
+  @media (max-width:900px){
+    .topbar{ padding:26px 20px 0; }
+    .stage{ padding:24px 16px 210px; }
+    .card{ grid-template-columns:1fr; }
+    .visual{
+      min-height:320px;
+      border-right:0;
+      border-bottom:1px solid var(--line);
+    }
+    .content{ min-height:0; padding:30px 26px 28px; }
+    h1{ font-size:30px; }
+    .hint{ display:none; }
+    .dock{ gap:12px 16px; padding:11px 12px; }
+    .ctl{ gap:7px; }
+    input[type="range"]{ width:86px; }
+    .ctl b{ min-width:40px; }
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    .pulse{ animation:none; }
+    .lens{ transition:opacity .12s linear; transform:none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="mark" aria-hidden="true"></span>
+    <div>
+      <p class="brand-title">局部放大器</p>
+      <p class="brand-sub">DOM Magnifier · 实时克隆放大</p>
+    </div>
+  </div>
+  <p class="hint"><span class="pulse" aria-hidden="true"></span>将指针移入卡片</p>
+</header>
+
+<main class="stage">
+  <article class="card" id="zoom" aria-label="湿地测绘记录">
+    <div class="visual">
+      <svg class="map" viewBox="0 0 600 470" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        <!-- 等高线 -->
+        <g fill="none" stroke="#2c4f59" stroke-width="1">
+          <path d="M62 132 C64 88 106 56 164 54 C222 52 272 84 280 134 C288 184 252 222 196 230 C140 238 86 214 68 178 C58 160 60 146 62 132 Z"/>
+          <path d="M322 196 C324 156 356 130 398 128 C440 126 474 152 480 188 C486 224 460 252 420 258 C380 264 344 242 330 214 C325 204 321 202 322 196 Z"/>
+          <path d="M-20 344 C20 302 82 290 132 308 C182 326 208 366 196 410 C188 440 166 462 140 470 L-20 470 Z"/>
+        </g>
+        <g fill="none" stroke="#386f67" stroke-width=".9" opacity=".78">
+          <path d="M88 136 C90 104 122 80 166 78 C210 76 246 100 250 137 C254 174 226 200 186 206 C146 212 106 194 94 168 C89 157 87 147 88 136 Z"/>
+          <path d="M348 196 C350 170 372 152 400 151 C428 150 452 168 456 192 C460 216 442 236 414 240 C386 244 360 228 352 210 C349 204 348 200 348 196 Z"/>
+          <path d="M16 356 C44 330 90 322 126 336 C162 350 180 380 172 412 C166 434 150 450 130 460 L16 470 Z"/>
+        </g>
+        <g fill="none" stroke="#47887a" stroke-width=".7" opacity=".58">
+          <path d="M114 138 C116 116 138 100 168 100 C198 100 222 116 224 138 C226 160 208 178 182 182 C156 186 130 174 120 156 C115 147 113 143 114 138 Z"/>
+          <path d="M374 194 C376 176 390 164 408 164 C426 164 440 176 442 194 C444 212 432 224 414 226 C396 228 380 216 376 204 C374 200 374 197 374 194 Z"/>
+          <path d="M50 362 C68 344 94 338 116 348 C138 358 150 378 146 400 C142 418 130 430 116 438 L50 452 Z"/>
+        </g>
+        <g fill="none" stroke="#559a87" stroke-width=".7" opacity=".72">
+          <ellipse cx="170" cy="140" rx="34" ry="20" transform="rotate(-8 170 140)"/>
+          <ellipse cx="402" cy="192" rx="27" ry="16" transform="rotate(6 402 192)"/>
+          <ellipse cx="104" cy="396" rx="30" ry="18" transform="rotate(-18 104 396)"/>
+        </g>
+
+        <!-- 盐沼草甸排线 -->
+        <g stroke="#788a4c" stroke-width=".8" opacity=".42">
+          <path d="M46 276 l9 -6 M64 282 l9 -6 M82 288 l9 -6 M100 294 l9 -6 M118 300 l9 -6 M136 306 l9 -6 M154 312 l9 -6 M172 318 l9 -6 M190 324 l9 -6 M208 330 l9 -6 M226 336 l9 -6 M244 342 l9 -6 M262 348 l9 -6 M280 354 l9 -6 M298 360 l9 -6 M316 366 l9 -6"/>
+          <path d="M78 330 l9 -6 M96 336 l9 -6 M114 342 l9 -6 M132 348 l9 -6 M150 354 l9 -6 M168 360 l9 -6 M186 366 l9 -6 M204 372 l9 -6 M222 378 l9 -6 M240 384 l9 -6 M258 390 l9 -6 M276 396 l9 -6 M294 402 l9 -6 M312 408 l9 -6"/>
+          <path d="M60 372 l9 -6 M78 378 l9 -6 M96 384 l9 -6 M114 390 l9 -6 M132 396 l9 -6 M150 402 l9 -6 M168 408 l9 -6 M186 414 l9 -6 M204 420 l9 -6 M222 426 l9 -6"/>
+        </g>
+
+        <!-- 潮水 -->
+        <path d="M600 286 C560 282 522 296 498 318 C474 340 468 372 444 392 C420 412 384 414 356 432 C332 448 322 460 318 470 L600 470 Z"
+              fill="#0c2427" stroke="#22524f" stroke-width="1.2"/>
+        <path d="M600 316 C566 312 538 322 520 342 C500 364 496 392 470 408 C444 424 412 422 386 438 C370 448 360 458 354 470"
+              fill="none" stroke="#2f6a65" stroke-width=".9" opacity=".62"/>
+        <path d="M420 386 C446 378 464 382 482 374 M440 410 C462 402 480 406 500 396 M380 430 C400 424 414 426 430 418"
+              fill="none" stroke="#2a5d58" stroke-width=".7" opacity=".62"/>
+
+        <!-- 潮沟 -->
+        <g fill="none" stroke="#2f6f69" stroke-linecap="round">
+          <path d="M318 470 C314 438 326 416 320 390 C314 364 296 350 300 322 C303 300 320 286 326 268" stroke-width="1.5" opacity=".85"/>
+          <path d="M320 390 C344 382 356 364 362 342" stroke-width="1" opacity=".65"/>
+          <path d="M302 338 C282 330 270 314 266 294" stroke-width="1" opacity=".65"/>
+          <path d="M330 430 C352 420 366 402 372 382" stroke-width=".8" opacity=".5"/>
+        </g>
+
+        <!-- 样带 -->
+        <path d="M76 404 C150 380 226 352 292 344 C360 336 420 316 486 288"
+              fill="none" stroke="#d7ff4a" stroke-width=".9" stroke-dasharray="4 5" opacity=".55"/>
+
+        <!-- 等高线标注 -->
+        <g font-size="6" fill="#4d7a70" opacity=".85">
+          <text x="148" y="48">+3.2</text>
+          <text x="252" y="60">+2.8</text>
+          <text x="456" y="118">+2.1</text>
+          <text x="84" y="316">+1.4</text>
+        </g>
+
+        <!-- 测绘十字点与散点高程 -->
+        <g stroke="#5d8587" stroke-width=".6" stroke-linecap="square" opacity=".55">
+          <path d="M230 244 h4 M232 242 v4 M258 268 h4 M260 266 v4 M242 300 h4 M244 298 v4"/>
+          <path d="M276 318 h4 M278 316 v4 M306 286 h4 M308 284 v4 M286 252 h4 M288 250 v4"/>
+          <path d="M316 246 h4 M318 244 v4 M210 262 h4 M212 260 v4 M226 330 h4 M228 328 v4"/>
+          <path d="M250 286 h4 M252 284 v4 M120 120 h4 M122 118 v4 M300 120 h4 M302 118 v4"/>
+          <path d="M440 150 h4 M442 148 v4 M470 210 h4 M472 208 v4 M90 260 h4 M92 258 v4"/>
+          <path d="M170 300 h4 M172 298 v4 M360 300 h4 M362 298 v4 M330 250 h4 M332 248 v4"/>
+        </g>
+        <g font-size="5.5" fill="#4f7a72" opacity=".8">
+          <text x="238" y="258">+1.8</text>
+          <text x="248" y="304">+1.6</text>
+          <text x="288" y="256">+1.9</text>
+          <text x="228" y="334">+1.3</text>
+          <text x="310" y="290">+1.5</text>
+        </g>
+
+        <!-- 平均高潮位线 -->
+        <path d="M528 328 C504 350 500 378 474 394 C448 410 416 410 390 426"
+              fill="none" stroke="#5a8f88" stroke-width=".7" stroke-dasharray="2 3" opacity=".55"/>
+        <text x="500" y="374" transform="rotate(52 500 374)" fill="#6b9c94" font-size="5.5" letter-spacing="1">MHWS</text>
+
+        <!-- 样点 -->
+        <g fill="none" stroke="#d7ff4a" stroke-width="1" opacity=".9">
+          <circle cx="166" cy="120" r="3.4"/>
+          <circle cx="256" cy="168" r="3.4"/>
+          <circle cx="104" cy="206" r="3.4"/>
+          <circle cx="398" cy="190" r="3.4"/>
+          <circle cx="146" cy="352" r="3.4"/>
+          <circle cx="292" cy="318" r="3.4"/>
+        </g>
+        <g fill="#d7ff4a">
+          <circle cx="166" cy="120" r="1.1"/>
+          <circle cx="256" cy="168" r="1.1"/>
+          <circle cx="104" cy="206" r="1.1"/>
+          <circle cx="398" cy="190" r="1.1"/>
+          <circle cx="146" cy="352" r="1.1"/>
+          <circle cx="292" cy="318" r="1.1"/>
+        </g>
+        <g fill="none" stroke="#5fe0c0" stroke-width="1" opacity=".9">
+          <circle cx="486" cy="352" r="3.4"/>
+        </g>
+        <circle cx="486" cy="352" r="1.1" fill="#5fe0c0"/>
+
+        <g font-size="7" fill="#cfe0ea" stroke="#0a1217" stroke-width="1.6" paint-order="stroke">
+          <text x="174" y="117">S-01</text>
+          <text x="264" y="165">S-02</text>
+          <text x="112" y="203">S-03</text>
+          <text x="406" y="187">S-04</text>
+          <text x="154" y="349">S-05</text>
+          <text x="300" y="315">S-06</text>
+          <text x="494" y="349" fill="#9fe6d4">S-07</text>
+        </g>
+
+        <g font-size="6.5" fill="#d7ff4a" fill-opacity=".8">
+          <text x="72" y="392">T-01</text>
+          <text x="494" y="282">T-02</text>
+        </g>
+
+        <!-- 地图文字 -->
+        <g fill="#7d9660" font-size="6" letter-spacing="1.4" opacity=".75">
+          <text x="96" y="300" transform="rotate(-8 96 300)">SALT MARSH</text>
+        </g>
+        <g fill="#5d8d89" font-size="6" letter-spacing="1.6" opacity=".8">
+          <text x="468" y="432" transform="rotate(-12 468 432)">OPEN WATER</text>
+          <text x="330" y="368" transform="rotate(54 330 368)">CREEK 04</text>
+        </g>
+
+        <!-- 指北针 -->
+        <g transform="translate(540 62)" fill="none" stroke="#6c8794" stroke-width=".8" opacity=".8">
+          <circle r="17"/>
+          <circle r="2.2" fill="#6c8794" stroke="none"/>
+          <path d="M0 -24 L4.5 0 L0 6 L-4.5 0 Z" fill="#d7ff4a" stroke="none" opacity=".85"/>
+          <text x="0" y="-29" text-anchor="middle" fill="#a9c0cf" stroke="none" font-size="6.5">N</text>
+        </g>
+
+        <!-- 比例尺 -->
+        <g transform="translate(30 440)" font-size="6" fill="#9db3c2">
+          <path d="M0 0 H92" stroke="#9db3c2" stroke-width=".8"/>
+          <path d="M0 -3 V3 M46 -3 V3 M92 -3 V3" stroke="#9db3c2" stroke-width=".8"/>
+          <text x="0" y="-7">0</text>
+          <text x="46" y="-7" text-anchor="middle">50</text>
+          <text x="92" y="-7" text-anchor="end">100 m</text>
+        </g>
+      </svg>
+      <div class="coords">31°14'22"N · 121°29'08"E</div>
+    </div>
+
+    <div class="content">
+      <p class="kicker">FIELD NOTES · NO. 07</p>
+      <h1>潮汐线以上的<br><span class="hl">最后一块湿地</span></h1>
+      <p class="lede">在围垦与航道的夹缝之间，这片盐沼仍在以每年 3.2 毫米的速度抬升。潮沟、样方与等高线，记录着它缓慢而固执的生长。</p>
+
+      <dl class="specs">
+        <div class="spec"><dt>监测面积</dt><dd>12.84<small>ha</small></dd></div>
+        <div class="spec"><dt>平均潮差</dt><dd>3.62<small>m</small></dd></div>
+        <div class="spec"><dt>样方数量</dt><dd>06<small>pts</small></dd></div>
+        <div class="spec"><dt>植被覆盖</dt><dd>78.4<small>%</small></dd></div>
+      </dl>
+
+      <p class="meta">测绘精度 ±0.3 m · 采样日期 2026-09-14 · 记录员 L. CHEN<br>设备 GNSS-RTK #A17 · 坐标系 WGS84 / UTM 51N</p>
+      <div class="stamp"><span class="bars" aria-hidden="true"></span><span>DOC-0714-A</span></div>
+    </div>
+  </article>
+</main>
+
+<div class="dock" role="toolbar" aria-label="放大器设置">
+  <div class="seg" role="group" aria-label="放大镜模式">
+    <button type="button" class="seg-btn is-on" data-mode="follow" aria-pressed="true">跟随指针</button>
+    <button type="button" class="seg-btn" data-mode="panel" aria-pressed="false">固定视窗</button>
+  </div>
+  <label class="ctl">
+    <span>倍率</span>
+    <input id="zoomRange" type="range" min="1.5" max="4" step="0.1" value="2.4" aria-label="放大倍率">
+    <b id="zoomVal">2.4×</b>
+  </label>
+  <label class="ctl">
+    <span>镜径</span>
+    <input id="sizeRange" type="range" min="140" max="320" step="10" value="220" aria-label="镜片直径">
+    <b id="sizeVal">220 px</b>
+  </label>
+</div>
+
+<div class="lens-wrap" id="lensWrap" aria-hidden="true">
+  <div class="lens" id="lens">
+    <div class="lens-stage" id="lensStage"></div>
+    <div class="lens-rim"></div>
+    <div class="lens-glare"></div>
+    <span class="lens-dot"></span>
+  </div>
+</div>
+<div class="probe" id="probe" aria-hidden="true"></div>
+
+<script>
+(() => {
+  const target = document.getElementById('zoom');
+  const lensWrap = document.getElementById('lensWrap');
+  const lens = document.getElementById('lens');
+  const lensStage = document.getElementById('lensStage');
+  const probe = document.getElementById('probe');
+  const zoomRange = document.getElementById('zoomRange');
+  const zoomVal = document.getElementById('zoomVal');
+  const sizeRange = document.getElementById('sizeRange');
+  const sizeVal = document.getElementById('sizeVal');
+  const modeButtons = Array.from(document.querySelectorAll('.seg-btn'));
+  const dock = document.querySelector('.dock');
+
+  const state = {
+    zoom: Number(zoomRange.value),
+    size: Number(sizeRange.value),
+    mode: 'follow',
+    active: false,
+    clone: null,
+    last: null,
+    hideTimer: 0
+  };
+
+  // The loupe is a scaled copy of the live DOM, so text and vector
+  // graphics stay sharp without any external library.
+  function buildClone() {
+    const rect = target.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return;
+
+    const clone = target.cloneNode(true);
+    clone.removeAttribute('id');
+    clone.querySelectorAll('[id]').forEach((node) => node.removeAttribute('id'));
+    clone.classList.add('clone');
+    clone.setAttribute('aria-hidden', 'true');
+    clone.style.width = `${rect.width}px`;
+    clone.style.height = `${rect.height}px`;
+
+    lensStage.replaceChildren(clone);
+    state.clone = clone;
+  }
+
+  function render(point = state.last) {
+    if (!point || !state.clone) return;
+
+    const rect = target.getBoundingClientRect();
+    const x = Math.min(Math.max(point.clientX - rect.left, 0), rect.width);
+    const y = Math.min(Math.max(point.clientY - rect.top, 0), rect.height);
+    const radius = state.size / 2;
+    const k = state.zoom;
+
+    const vw = document.documentElement.clientWidth;
+    const vh = window.innerHeight;
+    const pad = 10;
+    let lensX;
+    let lensY;
+    let anchorX = radius;
+    let anchorY = radius;
+
+    if (state.mode === 'follow') {
+      lensX = point.clientX - radius;
+      lensY = point.clientY - radius;
+      // On touch, keep the lens above the finger so the sample stays visible.
+      if (point.pointerType === 'touch') {
+        lensY = point.clientY - state.size - 18;
+      }
+      // Keep the loupe inside the card (and the viewport) so it always shows
+      // page content; at an edge the pointer sits near the lens rim instead
+      // of leaving half the loupe empty.
+      const minX = Math.max(pad, rect.left);
+      const maxX = Math.min(vw - state.size - pad, rect.right - state.size);
+      const minY = Math.max(pad, rect.top);
+      const maxY = Math.min(vh - state.size - pad, rect.bottom - state.size);
+
+      lensX = maxX >= minX
+        ? Math.min(Math.max(lensX, minX), maxX)
+        : Math.min(Math.max(lensX, pad), Math.max(pad, vw - state.size - pad));
+      lensY = maxY >= minY
+        ? Math.min(Math.max(lensY, minY), maxY)
+        : Math.min(Math.max(lensY, pad), Math.max(pad, vh - state.size - pad));
+
+      // Anchor the sample at the pointer's local position inside the loupe.
+      if (point.pointerType !== 'touch') {
+        anchorX = point.clientX - lensX;
+        anchorY = point.clientY - lensY;
+      }
+    } else {
+      const margin = Math.max(18, Math.round(vw * 0.035));
+      lensX = Math.max(pad, vw - state.size - margin);
+      lensY = Math.max(pad, (vh - state.size) / 2 - 30);
+    }
+
+    // k * point + translate = anchor
+    state.clone.style.transform =
+      `translate(${(anchorX - x * k).toFixed(2)}px, ${(anchorY - y * k).toFixed(2)}px) scale(${k})`;
+
+    lensWrap.style.transform = `translate3d(${lensX}px, ${lensY}px, 0)`;
+    lens.style.setProperty('--dot-x', `${anchorX}px`);
+    lens.style.setProperty('--dot-y', `${anchorY}px`);
+
+    if (state.mode === 'panel' || point.pointerType === 'touch') {
+      probe.style.transform = `translate3d(${point.clientX}px, ${point.clientY}px, 0)`;
+    }
+    syncProbe();
+  }
+
+  function probeVisible() {
+    return state.active && (
+      state.mode === 'panel' ||
+      Boolean(state.last && state.last.pointerType === 'touch')
+    );
+  }
+
+  function syncProbe() {
+    probe.classList.toggle('is-on', probeVisible());
+  }
+
+  function setActive(next) {
+    state.active = next;
+    lensWrap.classList.toggle('is-active', next);
+    syncProbe();
+  }
+
+  function show() {
+    window.clearTimeout(state.hideTimer);
+    if (!state.active) setActive(true);
+  }
+
+  function hideSoon() {
+    window.clearTimeout(state.hideTimer);
+    state.hideTimer = window.setTimeout(() => setActive(false), 700);
+  }
+
+  function hideNow() {
+    window.clearTimeout(state.hideTimer);
+    setActive(false);
+  }
+
+  target.addEventListener('pointermove', (event) => {
+    if (event.pointerType === 'touch' && event.buttons === 0) return;
+    state.last = {
+      clientX: event.clientX,
+      clientY: event.clientY,
+      pointerType: event.pointerType
+    };
+    show();
+    render();
+  }, { passive: true });
+
+  target.addEventListener('pointerdown', (event) => {
+    state.last = {
+      clientX: event.clientX,
+      clientY: event.clientY,
+      pointerType: event.pointerType
+    };
+    show();
+    render();
+  }, { passive: true });
+
+  target.addEventListener('pointerup', (event) => {
+    if (event.pointerType !== 'mouse') hideSoon();
+  }, { passive: true });
+
+  target.addEventListener('pointerleave', hideSoon);
+  target.addEventListener('pointercancel', hideSoon);
+  window.addEventListener('blur', hideNow);
+
+  dock.addEventListener('pointerenter', () => window.clearTimeout(state.hideTimer));
+  dock.addEventListener('pointerleave', () => {
+    if (state.active) hideSoon();
+  });
+
+  modeButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      state.mode = button.dataset.mode;
+      modeButtons.forEach((item) => {
+        const on = item === button;
+        item.classList.toggle('is-on', on);
+        item.setAttribute('aria-pressed', String(on));
+      });
+      syncProbe();
+      if (state.last) render();
+    });
+  });
+
+  zoomRange.addEventListener('input', () => {
+    state.zoom = Number(zoomRange.value);
+    zoomVal.textContent = `${state.zoom.toFixed(1)}×`;
+    if (state.last) render();
+  });
+
+  sizeRange.addEventListener('input', () => {
+    state.size = Number(sizeRange.value);
+    lens.style.width = `${state.size}px`;
+    lens.style.height = `${state.size}px`;
+    sizeVal.textContent = `${state.size} px`;
+    if (state.last) render();
+  });
+
+  let refreshFrame = 0;
+  function refresh() {
+    window.cancelAnimationFrame(refreshFrame);
+    refreshFrame = window.requestAnimationFrame(() => {
+      buildClone();
+      if (state.last) render();
+    });
+  }
+
+  window.addEventListener('resize', refresh);
+  window.addEventListener('scroll', () => {
+    if (state.active && state.last) render();
+  }, { passive: true });
+
+  if ('ResizeObserver' in window) {
+    new ResizeObserver(refresh).observe(target);
+  }
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(refresh);
+  }
+
+  buildClone();
+})();
+</script>
+</body>
+</html>
